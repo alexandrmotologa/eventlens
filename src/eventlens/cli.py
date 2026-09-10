@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -15,10 +15,15 @@ from rich.table import Table
 from eventlens.config import EventLensConfig
 from eventlens.decoders.registry import DecoderRegistry
 from eventlens.engine.consumer import AsyncConsumer
+from eventlens.engine.diff import compare_payloads
 from eventlens.engine.dlq_engine import DLQEngine
 from eventlens.engine.filter import EventFilter
 from eventlens.engine.lag_tracker import LagTracker
+from eventlens.engine.producer import AsyncProducer
+from eventlens.engine.recorder import TrafficRecorder
+from eventlens.engine.replayer import TrafficReplayer
 from eventlens.engine.simulator import MockStreamSimulator
+from eventlens.engine.tracer import EventTracer
 from eventlens.models import KafkaRecord
 
 app = typer.Typer(
@@ -351,6 +356,95 @@ async def _async_dlq_redrive(
         console.print(f"[bold red][FAIL] Redrive failed:[/] {result.error}")
 
 
+@dlq_app.command("redrive-batch")
+def dlq_redrive_batch_command(
+    topic: str = typer.Argument(..., help="Source DLQ topic"),
+    target: Optional[str] = typer.Option(None, "--target", "-t", help="Target topic (defaults to x-original-topic)"),
+    category: Optional[str] = typer.Option(None, "--category", "-c", help="Filter by failure category keyword"),
+    filter_expr: Optional[str] = typer.Option(None, "--filter", "-f", help="JMESPath filter"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview matching messages without publishing"),
+    limit: Optional[int] = typer.Option(50, "--limit", "-l", help="Max records to redrive"),
+    broker: str = typer.Option("localhost:9092", "--broker", "-b", help="Kafka broker"),
+    demo: bool = typer.Option(False, "--demo", help="Use simulated DLQ records"),
+) -> None:
+    """Batch redrive dead-letter records with failure category filtering and dry-run preview."""
+    asyncio.run(
+        _async_dlq_redrive_batch(
+            topic=topic,
+            target=target,
+            category=category,
+            filter_expr=filter_expr,
+            dry_run=dry_run,
+            limit=limit,
+            broker=broker,
+            demo=demo,
+        )
+    )
+
+
+async def _async_dlq_redrive_batch(
+    topic: str,
+    target: Optional[str],
+    category: Optional[str],
+    filter_expr: Optional[str],
+    dry_run: bool,
+    limit: Optional[int],
+    broker: str,
+    demo: bool,
+) -> None:
+    config = EventLensConfig(bootstrap_servers=broker)
+    dlq_engine = DLQEngine(config=config)
+
+    console.print(
+        f"[bold cyan]DLQ Batch Redrive[/] on [yellow]{topic}[/] "
+        f"(Mode: {'[bold magenta]DRY RUN[/]' if dry_run else '[bold green]LIVE EXECUTION[/]'})"
+    )
+
+    records: list[KafkaRecord] = []
+    if demo:
+        sim = MockStreamSimulator(topic=topic)
+        for _ in range(limit or 20):
+            records.append(sim.generate_record(force_dlq=True))
+    else:
+        consumer = AsyncConsumer(topic=topic, config=config, from_beginning=True)
+        try:
+            async for rec in consumer.stream_records(max_messages=limit or 100):
+                records.append(rec)
+        except Exception as err:
+            console.print(f"[bold red]Failed fetching records from DLQ:[/] {err}")
+            return
+
+    summary = await dlq_engine.redrive_batch(
+        records=records,
+        target_topic=target,
+        category=category,
+        filter_expr=filter_expr,
+        dry_run=dry_run,
+        limit=limit,
+    )
+
+    table = Table(title="Batch Redrive Summary", expand=True)
+    table.add_column("Scanned", justify="right", width=10)
+    table.add_column("Matched", justify="right", width=10)
+    table.add_column("Redriven / Action", justify="right", width=18)
+    table.add_column("Skipped", justify="right", width=10)
+    table.add_column("Failed", justify="right", width=10)
+    table.add_column("Dry Run", width=10)
+
+    action_label = (
+        f"[yellow]{summary.redriven_count} (simulated)[/]" if dry_run else f"[green]{summary.redriven_count}[/]"
+    )
+    table.add_row(
+        str(summary.total_scanned),
+        str(summary.matched_count),
+        action_label,
+        str(summary.skipped_count),
+        f"[red]{summary.failed_count}[/]" if summary.failed_count else "0",
+        "[yellow]YES[/]" if dry_run else "[dim]NO[/]",
+    )
+    console.print(table)
+
+
 @app.command("demo")
 def demo_command(
     rate: float = typer.Option(2.0, "--rate", "-r", help="Messages per second"),
@@ -374,6 +468,400 @@ def demo_command(
             demo=True,
         )
     )
+
+
+@app.command("record")
+def record_command(
+    topic: str = typer.Argument(..., help="Kafka topic to capture"),
+    output: Path = typer.Option(..., "--output", "-o", help="Target .lens session file path"),
+    duration: Optional[float] = typer.Option(None, "--duration", "-d", help="Duration in seconds to record"),
+    max_messages: Optional[int] = typer.Option(None, "--max-messages", "-m", help="Max messages to record"),
+    broker: str = typer.Option("localhost:9092", "--broker", "-b", help="Kafka broker address"),
+    demo: bool = typer.Option(False, "--demo", help="Record from simulated stream"),
+) -> None:
+    """Capture live traffic from a topic into a .lens session file."""
+    asyncio.run(
+        _async_record(
+            topic=topic,
+            output=output,
+            duration=duration,
+            max_messages=max_messages,
+            broker=broker,
+            demo=demo,
+        )
+    )
+
+
+async def _async_record(
+    topic: str,
+    output: Path,
+    duration: Optional[float],
+    max_messages: Optional[int],
+    broker: str,
+    demo: bool,
+) -> None:
+    recorder = TrafficRecorder(output_path=output)
+    console.print(f"[bold cyan]Recording traffic from[/] [green]{topic}[/] -> [yellow]{output}[/]")
+
+    if demo:
+        sim = MockStreamSimulator(topic=topic)
+        stream = sim.stream_records(rate_per_second=3.0, max_messages=max_messages)
+    else:
+        config = EventLensConfig(bootstrap_servers=broker)
+        consumer = AsyncConsumer(topic=topic, config=config, from_beginning=False)
+        stream = consumer.stream_records(max_messages=max_messages)
+
+    try:
+        count = await recorder.record_stream(
+            stream=stream,
+            max_messages=max_messages,
+            duration_seconds=duration,
+        )
+        console.print(f"[bold green][OK] Captured {count} messages into {output}[/]")
+    except KeyboardInterrupt:
+        console.print(f"\n[yellow]Recording stopped. Saved {recorder.recorded_count} messages to {output}[/]")
+
+
+@app.command("replay")
+def replay_command(
+    session_file: Path = typer.Argument(..., help="Path to .lens session file"),
+    target: Optional[str] = typer.Option(None, "--target", "-t", help="Target topic (defaults to original topic)"),
+    speed: float = typer.Option(
+        1.0, "--speed", "-s", help="Playback speed multiplier (e.g. 1.0, 2.0, 0 for max speed)"
+    ),
+    loop: bool = typer.Option(False, "--loop", help="Loop replay indefinitely"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simulate replay without publishing to Kafka"),
+    broker: str = typer.Option("localhost:9092", "--broker", "-b", help="Kafka broker address"),
+) -> None:
+    """Replay a recorded .lens session file into a target topic."""
+    asyncio.run(
+        _async_replay(
+            session_file=session_file,
+            target=target,
+            speed=speed,
+            loop=loop,
+            dry_run=dry_run,
+            broker=broker,
+        )
+    )
+
+
+async def _async_replay(
+    session_file: Path,
+    target: Optional[str],
+    speed: float,
+    loop: bool,
+    dry_run: bool,
+    broker: str,
+) -> None:
+    if not session_file.exists():
+        console.print(f"[bold red]Session file not found:[/] {session_file}")
+        raise typer.Exit(1)
+
+    config = EventLensConfig(bootstrap_servers=broker)
+    replayer = TrafficReplayer(session_path=session_file, config=config)
+
+    console.print(
+        f"[bold cyan]Replaying session[/] [yellow]{session_file.name}[/] "
+        f"(Speed: {speed}x, Mode: {'[bold magenta]DRY RUN[/]' if dry_run else '[bold green]LIVE[/]'})"
+    )
+
+    count = 0
+    async for record, published in replayer.stream_replay(
+        target_topic=target,
+        speed=speed,
+        loop=loop,
+        dry_run=dry_run,
+    ):
+        count += 1
+        status = "[yellow]SIMULATED[/]" if dry_run else "[green]REPLAYED[/]"
+        console.print(f"[{status}] #{count} -> [cyan]{record.topic}[/] (Key: {record.key})")
+
+    console.print(f"[bold green][OK] Replay completed: {count} messages processed.[/]")
+
+
+@app.command("trace")
+def trace_command(
+    correlation_id: str = typer.Argument(..., help="Correlation ID, order_id, or traceparent to search"),
+    topics: str = typer.Option(
+        "order.events,payment.events,inventory.events,order.events.dlq",
+        "--topics",
+        "-t",
+        help="Comma-separated topics to scan",
+    ),
+    broker: str = typer.Option("localhost:9092", "--broker", "-b", help="Kafka broker address"),
+    demo: bool = typer.Option(False, "--demo", help="Use simulated distributed trace data"),
+) -> None:
+    """Trace the end-to-end lifecycle of an event across multiple Kafka topics."""
+    asyncio.run(_async_trace(correlation_id=correlation_id, topics_str=topics, broker=broker, demo=demo))
+
+
+async def _async_trace(
+    correlation_id: str,
+    topics_str: str,
+    broker: str,
+    demo: bool,
+) -> None:
+    topic_list = [t.strip() for t in topics_str.split(",") if t.strip()]
+    console.print(
+        f"[bold cyan]Tracing Event Lifecycle for ID:[/] [bold yellow]{correlation_id}[/] "
+        f"across {len(topic_list)} topics..."
+    )
+
+    records: list[KafkaRecord] = []
+
+    if demo:
+        import time
+
+        now_ms = int(time.time() * 1000)
+        records = [
+            KafkaRecord(
+                topic="order.events",
+                partition=0,
+                offset=1001,
+                timestamp=now_ms - 250,
+                key=correlation_id,
+                value='{"event_type": "OrderCreated", "order_id": "' + correlation_id + '", "status": "PENDING"}',
+                decoded_payload={"event_type": "OrderCreated", "order_id": correlation_id, "status": "PENDING"},
+                headers={"x-correlation-id": correlation_id, "traceparent": f"00-{correlation_id}-01"},
+            ),
+            KafkaRecord(
+                topic="order.events",
+                partition=0,
+                offset=1002,
+                timestamp=now_ms - 180,
+                key=correlation_id,
+                value='{"event_type": "OrderValidated", "order_id": "' + correlation_id + '"}',
+                decoded_payload={"event_type": "OrderValidated", "order_id": correlation_id},
+                headers={"x-correlation-id": correlation_id},
+            ),
+            KafkaRecord(
+                topic="payment.events",
+                partition=1,
+                offset=405,
+                timestamp=now_ms - 90,
+                key=correlation_id,
+                value='{"event_type": "OrderPaid", "order_id": "' + correlation_id + '", "amount": 149.99}',
+                decoded_payload={"event_type": "OrderPaid", "order_id": correlation_id, "amount": 149.99},
+                headers={"x-correlation-id": correlation_id},
+            ),
+            KafkaRecord(
+                topic="order.events.dlq",
+                partition=0,
+                offset=88,
+                timestamp=now_ms,
+                key=correlation_id,
+                value='{"order_id": "' + correlation_id + '", "error": "InventoryAllocationException"}',
+                decoded_payload={"order_id": correlation_id, "error": "InventoryAllocationException"},
+                headers={
+                    "x-correlation-id": correlation_id,
+                    "x-exception-message": "InventoryAllocationException: Item SKU-901 out of stock",
+                    "x-original-topic": "inventory.events",
+                },
+                is_dlq=True,
+                error_message="InventoryAllocationException: Item SKU-901 out of stock",
+            ),
+        ]
+    else:
+        config = EventLensConfig(bootstrap_servers=broker)
+        for t in topic_list:
+            consumer = AsyncConsumer(topic=t, config=config, from_beginning=True)
+            try:
+                async for rec in consumer.stream_records(max_messages=100):
+                    if EventTracer.record_matches_correlation(rec, correlation_id):
+                        records.append(rec)
+            except Exception as err:
+                console.print(f"[dim]Topic {t} scan error: {err}[/]")
+
+    graph = EventTracer.build_trace_graph(correlation_id=correlation_id, records=records)
+
+    if not graph.hops:
+        console.print(f"[yellow]No events found matching correlation ID '{correlation_id}'.[/]")
+        return
+
+    table = Table(title=f"Distributed Event Trace: {correlation_id}", expand=True)
+    table.add_column("Step", justify="right", width=6)
+    table.add_column("Topic", width=20)
+    table.add_column("P:Offset", width=12)
+    table.add_column("Event Type / Action", width=22)
+    table.add_column("Latency Delta", justify="right", width=14)
+    table.add_column("Status", width=12)
+
+    for idx, hop in enumerate(graph.hops, 1):
+        status_style = "[bold red]POISON (DLQ)[/]" if hop.is_dlq else "[green]SUCCESS[/]"
+        delta_str = f"+{hop.latency_from_prev_ms:.0f} ms" if hop.latency_from_prev_ms is not None else "START"
+        evt_str = hop.event_type or (hop.error_message[:20] if hop.error_message else "Message")
+
+        table.add_row(
+            str(idx),
+            f"[cyan]{hop.topic}[/]",
+            f"{hop.partition}:{hop.offset}",
+            evt_str,
+            delta_str,
+            status_style,
+        )
+
+    console.print(table)
+    total_str = f"{graph.total_latency_ms:.0f} ms" if graph.total_latency_ms is not None else "unknown"
+    console.print(
+        f"[bold]Trace Summary:[/] Total Hops: {len(graph.hops)} | Total E2E Latency: [bold magenta]{total_str}[/] | "
+        f"DLQ Encounted: {'[bold red]YES[/]' if graph.has_dlq else '[bold green]NO[/]'}\n"
+    )
+
+
+@app.command("diff")
+def diff_command(
+    target_a: str = typer.Argument(..., help="First message (file path or topic:offset)"),
+    target_b: str = typer.Argument(..., help="Second message (file path or topic:offset)"),
+    broker: str = typer.Option("localhost:9092", "--broker", "-b", help="Kafka broker address"),
+    demo: bool = typer.Option(False, "--demo", help="Use sample payloads for diff comparison"),
+) -> None:
+    """Compare two Kafka message payloads or JSON files side-by-side."""
+    asyncio.run(_async_diff(target_a=target_a, target_b=target_b, broker=broker, demo=demo))
+
+
+async def _async_diff(
+    target_a: str,
+    target_b: str,
+    broker: str,
+    demo: bool,
+) -> None:
+    payload_a = None
+    payload_b = None
+
+    if demo:
+        payload_a = {
+            "order_id": "ord_9011",
+            "currency": "USD",
+            "total_amount": 149.99,
+            "items": [{"id": "item_1", "qty": 2}],
+            "status": "PROCESSED",
+        }
+        payload_b = {
+            "order_id": "ord_9011",
+            "currency": "EUR",
+            "total_amount": 149.99,
+            "items": [{"id": "item_1", "qty": -5}],
+            "status": "REJECTED_DLQ",
+            "failure_reason": "Negative quantity",
+        }
+    else:
+        # Check if raw JSON strings
+        try:
+            payload_a = json.loads(target_a)
+        except Exception:
+            p_a = Path(target_a)
+            if p_a.exists():
+                payload_a = json.loads(p_a.read_text(encoding="utf-8"))
+
+        try:
+            payload_b = json.loads(target_b)
+        except Exception:
+            p_b = Path(target_b)
+            if p_b.exists():
+                payload_b = json.loads(p_b.read_text(encoding="utf-8"))
+
+        # Fallback to topic:offset lookup
+        if payload_a is None or payload_b is None:
+            console.print("[dim]Fetching records from Kafka cluster...[/]")
+            # In live mode, fetch records via consumer seek
+            # Fallback to raw string if unable to connect
+            payload_a = payload_a or {"source": target_a}
+            payload_b = payload_b or {"source": target_b}
+
+    diff_result = compare_payloads(payload_a, payload_b)
+    table = diff_result.to_rich_table(title_a=target_a, title_b=target_b)
+    console.print(table)
+
+
+@app.command("produce")
+def produce_command(
+    topic: str = typer.Argument(..., help="Destination Kafka topic"),
+    key: Optional[str] = typer.Option(None, "--key", "-k", help="Message key"),
+    json_str: Optional[str] = typer.Option(None, "--json", "-j", help="JSON payload string"),
+    file_path: Optional[Path] = typer.Option(None, "--file", "-f", help="Path to JSON or payload file"),
+    headers_str: Optional[str] = typer.Option(None, "--headers", "-H", help="Headers in k:v,k:v format"),
+    count: int = typer.Option(1, "--count", "-n", help="Number of messages to produce"),
+    rate: float = typer.Option(10.0, "--rate", "-r", help="Send rate in messages per second"),
+    broker: str = typer.Option("localhost:9092", "--broker", "-b", help="Kafka broker address"),
+    demo: bool = typer.Option(False, "--demo", help="Simulate producing without live broker"),
+) -> None:
+    """Publish custom messages directly into a Kafka topic."""
+    asyncio.run(
+        _async_produce(
+            topic=topic,
+            key=key,
+            json_str=json_str,
+            file_path=file_path,
+            headers_str=headers_str,
+            count=count,
+            rate=rate,
+            broker=broker,
+            demo=demo,
+        )
+    )
+
+
+async def _async_produce(
+    topic: str,
+    key: Optional[str],
+    json_str: Optional[str],
+    file_path: Optional[Path],
+    headers_str: Optional[str],
+    count: int,
+    rate: float,
+    broker: str,
+    demo: bool,
+) -> None:
+    payload: Any = "{}"
+    if file_path:
+        if not file_path.exists():
+            console.print(f"[bold red]Payload file not found:[/] {file_path}")
+            raise typer.Exit(1)
+        payload = file_path.read_text(encoding="utf-8")
+    elif json_str:
+        payload = json_str
+
+    headers_dict: dict[str, str] = {}
+    if headers_str:
+        for pair in headers_str.split(","):
+            if ":" in pair:
+                k, v = pair.split(":", 1)
+                headers_dict[k.strip()] = v.strip()
+
+    console.print(
+        f"[bold cyan]Producing {count} message(s) to[/] [green]{topic}[/] "
+        f"(Mode: {'[bold magenta]SIMULATED[/]' if demo else '[bold green]LIVE[/]'})"
+    )
+
+    delay = 1.0 / max(0.1, rate) if count > 1 else 0
+
+    if demo:
+        for i in range(1, count + 1):
+            cur_key = f"{key}_{i}" if (key and count > 1) else (key or f"msg_{i}")
+            console.print(f"[bold green][OK] Produced simulated message #{i}[/] (Topic: {topic}, Key: {cur_key})")
+            if delay > 0 and i < count:
+                await asyncio.sleep(delay)
+    else:
+        config = EventLensConfig(bootstrap_servers=broker)
+        producer = AsyncProducer(config=config)
+        await producer.start()
+        try:
+            for i in range(1, count + 1):
+                cur_key = f"{key}_{i}" if (key and count > 1) else key
+                part, off = await producer.send(
+                    topic=topic,
+                    value=payload,
+                    key=cur_key,
+                    headers=headers_dict if headers_dict else None,
+                )
+                console.print(
+                    f"[bold green][OK] Published message #{i}[/] (Topic: {topic}, Partition: {part}, Offset: {off})"
+                )
+                if delay > 0 and i < count:
+                    await asyncio.sleep(delay)
+        finally:
+            await producer.stop()
 
 
 @app.command("tui")

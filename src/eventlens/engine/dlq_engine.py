@@ -6,8 +6,9 @@ import re
 from typing import Any
 
 from eventlens.config import EventLensConfig
+from eventlens.engine.filter import EventFilter
 from eventlens.engine.producer import AsyncProducer
-from eventlens.models import DLQDiagnostic, KafkaRecord, RedriveResult
+from eventlens.models import BatchRedriveSummary, DLQDiagnostic, KafkaRecord, RedriveResult
 
 FAILURE_RULES: list[tuple[str, str, str, str]] = [
     (
@@ -29,7 +30,7 @@ FAILURE_RULES: list[tuple[str, str, str, str]] = [
         "Verify schema contract version or synchronize message definition.",
     ),
     (
-        r"(TimeoutException|ConnectException|SocketTimeout|503 Service Unavailable|504 Gateway)",
+        r"(TimeoutException|ConnectException|ConnectionRefused|ConnectionError|SocketTimeout|503|504)",
         "Downstream Service Outage",
         "Processing failed due to temporary network or dependency unavailability.",
         "Safe to redrive directly without altering payload once service recovers.",
@@ -124,3 +125,82 @@ class DLQEngine:
             patched_payload=patched_payload,
             strip_dlq_headers=strip_dlq_headers,
         )
+
+    async def redrive_batch(
+        self,
+        records: list[KafkaRecord],
+        target_topic: str | None = None,
+        category: str | None = None,
+        filter_expr: str | None = None,
+        dry_run: bool = False,
+        limit: int | None = None,
+        strip_dlq_headers: bool = True,
+    ) -> BatchRedriveSummary:
+        """Filter and redrive a batch of dead-letter records."""
+        event_filter = EventFilter(jmespath_query=filter_expr)
+        source_topic = records[0].topic if records else "unknown"
+        default_target = (
+            target_topic or (records[0].headers.get("x-original-topic") if records else "unknown") or "unknown"
+        )
+
+        summary = BatchRedriveSummary(
+            source_topic=source_topic,
+            target_topic=default_target,
+            total_scanned=len(records),
+            matched_count=0,
+            redriven_count=0,
+            skipped_count=0,
+            failed_count=0,
+            dry_run=dry_run,
+            results=[],
+        )
+
+        matched_records: list[tuple[KafkaRecord, str]] = []
+
+        for rec in records:
+            dest = target_topic or rec.headers.get("x-original-topic")
+            if not dest:
+                summary.skipped_count += 1
+                continue
+
+            diag = self.diagnose_record(rec)
+            if category and category.lower() not in diag.failure_category.lower():
+                summary.skipped_count += 1
+                continue
+
+            if event_filter.is_active() and not event_filter.matches(rec):
+                summary.skipped_count += 1
+                continue
+
+            matched_records.append((rec, dest))
+            summary.matched_count += 1
+
+            if limit and len(matched_records) >= limit:
+                break
+
+        for rec, dest in matched_records:
+            if dry_run:
+                summary.results.append(
+                    RedriveResult(
+                        success=True,
+                        source_topic=rec.topic,
+                        target_topic=dest,
+                        source_offset=rec.offset,
+                        produced_partition=rec.partition,
+                        produced_offset=rec.offset,
+                    )
+                )
+                summary.redriven_count += 1
+            else:
+                res = await self.redrive(
+                    record=rec,
+                    target_topic=dest,
+                    strip_dlq_headers=strip_dlq_headers,
+                )
+                summary.results.append(res)
+                if res.success:
+                    summary.redriven_count += 1
+                else:
+                    summary.failed_count += 1
+
+        return summary

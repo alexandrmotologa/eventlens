@@ -85,3 +85,17 @@ class RedriveResult(BaseModel):
     produced_partition: int | None = None
     produced_offset: int | None = None
     error: str | None = None
+
+
+class BatchRedriveSummary(BaseModel):
+    """Summary of batch redrive execution."""
+
+    source_topic: str
+    target_topic: str
+    total_scanned: int
+    matched_count: int
+    redriven_count: int
+    skipped_count: int
+    failed_count: int
+    dry_run: bool
+    results: list[RedriveResult] = Field(default_factory=list)

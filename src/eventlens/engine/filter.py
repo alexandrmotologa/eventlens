@@ -49,6 +49,10 @@ class EventFilter:
 
             try:
                 result = self.compiled_jmespath.search(payload)
+                if not result and isinstance(payload, (dict, list)):
+                    context = {"payload": payload, "headers": record.headers, "key": record.key}
+                    result = self.compiled_jmespath.search(context)
+
                 # Truthy evaluation in Python
                 if not result:
                     return False

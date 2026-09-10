@@ -6,13 +6,21 @@ import struct
 from typing import Any
 
 from eventlens.decoders.base import BaseDecoder, DecodedPayload
+from eventlens.decoders.schema_registry import SchemaRegistryClient
 
 
 class AvroDecoder(BaseDecoder):
     """Decodes Confluent Schema Registry wire-format frames (0x00 + schema ID + payload)."""
 
-    def __init__(self, schema_registry_url: str | None = None) -> None:
+    def __init__(
+        self,
+        schema_registry_url: str | None = None,
+        registry_client: SchemaRegistryClient | None = None,
+    ) -> None:
         self.schema_registry_url = schema_registry_url
+        self.registry_client = registry_client or (
+            SchemaRegistryClient(base_url=schema_registry_url) if schema_registry_url else None
+        )
 
     @property
     def name(self) -> str:
@@ -38,29 +46,46 @@ class AvroDecoder(BaseDecoder):
         schema_id = struct.unpack(">I", raw[1:5])[0]
         payload_bytes = raw[5:]
 
+        # Lookup schema in registry client if available
+        resolved_schema = None
+        if self.registry_client:
+            resolved_schema = self.registry_client.get_cached_schema(schema_id)
+
         # Try parsing payload as embedded JSON first
         try:
             import json
 
             text = payload_bytes.decode("utf-8")
             data = json.loads(text)
+            out_data: dict[str, Any] = {
+                "_schema_id": schema_id,
+                **(data if isinstance(data, dict) else {"content": data}),
+            }
+            if resolved_schema:
+                out_data["_schema_definition"] = resolved_schema.get("schema")
+                out_data["_schema_type"] = resolved_schema.get("schemaType", "AVRO")
+
             return DecodedPayload(
                 format=self.name,
-                data={"_schema_id": schema_id, **(data if isinstance(data, dict) else {"content": data})},
+                data=out_data,
                 raw_bytes=raw,
                 is_structured=True,
             )
         except Exception:
-            # Binary Avro payload representation
-            data: dict[str, Any] = {
+            # Binary Avro payload representation with schema metadata
+            data_bin: dict[str, Any] = {
                 "_schema_id": schema_id,
                 "_wire_format": "confluent-avro",
                 "payload_hex": payload_bytes.hex(),
                 "payload_length_bytes": len(payload_bytes),
             }
+            if resolved_schema:
+                data_bin["_schema_definition"] = resolved_schema.get("schema")
+                data_bin["_schema_type"] = resolved_schema.get("schemaType", "AVRO")
+
             return DecodedPayload(
                 format=self.name,
-                data=data,
+                data=data_bin,
                 raw_bytes=raw,
                 is_structured=True,
             )
