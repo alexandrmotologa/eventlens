@@ -1,4 +1,8 @@
-# EventLens
+<p align="center">
+  <img src="docs/images/logo.png" alt="EventLens Logo" width="130" style="border-radius: 28px;" />
+</p>
+
+<h1 align="center">EventLens</h1>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11%2B%20%7C%203.12-blue?logo=python&logoColor=white" alt="Python" />
