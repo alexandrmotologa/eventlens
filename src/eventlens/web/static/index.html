@@ -12,57 +12,63 @@
 </head>
 <body class="dark-theme">
   <header class="app-header" id="app-header">
-    <div class="brand-group">
-      <div class="logo-badge">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="2" y1="12" x2="22" y2="12"></line>
-          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-        </svg>
-      </div>
-      <div class="brand-text">
-        <h1 class="brand-title">EventLens</h1>
-        <span class="brand-subtitle">Stream Debugger & DLQ Studio</span>
-      </div>
-    </div>
-
-    <div class="header-status-panel">
-      <div class="status-chip" id="connection-status">
-        <span class="status-dot pulse-green"></span>
-        <span id="conn-text">Connecting...</span>
-      </div>
-      <div class="metric-chip">
-        <span class="metric-label">Topic:</span>
-        <span class="metric-val" id="active-topic">-</span>
-      </div>
-      <div class="metric-chip">
-        <span class="metric-label">Rate:</span>
-        <span class="metric-val" id="eps-counter">0.0 eps</span>
-      </div>
-    </div>
-
-    <nav class="nav-tabs" id="navigation-tabs">
-      <button class="tab-btn active" data-tab="streams" id="tab-streams-btn">Live Stream</button>
-      <button class="tab-btn" data-tab="dlq" id="tab-dlq-btn">
-        DLQ Studio <span class="badge badge-red" id="dlq-count-badge">0</span>
-      </button>
-      <button class="tab-btn" data-tab="lag" id="tab-lag-btn">Lag Monitor</button>
-      <button class="tab-btn" data-tab="trace" id="tab-trace-btn">Event Trace</button>
-      <button class="tab-btn" data-tab="diff" id="tab-diff-btn">Diff Tool</button>
-    </nav>
-
-    <div class="header-action-group">
-      <button class="btn btn-secondary btn-sm" id="btn-open-produce">+ Produce Event</button>
-      <div class="dropdown">
-        <button class="btn btn-secondary btn-sm" id="btn-export-dropdown">Export ▾</button>
-        <div class="dropdown-menu" id="export-menu">
-          <a href="/api/export?format=json" download="eventlens_stream.json">JSON Format</a>
-          <a href="/api/export?format=ndjson" download="eventlens_stream.ndjson">NDJSON Format</a>
-          <a href="/api/export?format=csv" download="eventlens_stream.csv">CSV Format</a>
-          <a href="/api/export?format=json&dlq_only=true" download="eventlens_dlq.json">DLQ Only (JSON)</a>
+    <div class="header-top">
+      <div class="brand-group">
+        <div class="logo-badge">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="2" y1="12" x2="22" y2="12"></line>
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+          </svg>
+        </div>
+        <div class="brand-title-wrap">
+          <h1 class="brand-title">EventLens</h1>
+          <span class="brand-tag">Studio</span>
         </div>
       </div>
-      <button class="btn-icon" id="btn-toggle-sound" title="Toggle Audio Alerts">🔔</button>
+
+      <div class="header-right-group">
+        <div class="header-status-panel">
+          <div class="status-chip" id="connection-status">
+            <span class="status-dot pulse-green"></span>
+            <span id="conn-text">Connecting...</span>
+          </div>
+          <div class="metric-chip">
+            <span class="metric-label">Topic:</span>
+            <span class="metric-val" id="active-topic">-</span>
+          </div>
+          <div class="metric-chip">
+            <span class="metric-label">Rate:</span>
+            <span class="metric-val" id="eps-counter">0.0 eps</span>
+          </div>
+        </div>
+
+        <div class="header-action-group">
+          <button class="btn btn-secondary btn-sm" id="btn-open-produce">+ Produce</button>
+          <div class="dropdown">
+            <button class="btn btn-secondary btn-sm" id="btn-export-dropdown">Export ▾</button>
+            <div class="dropdown-menu" id="export-menu">
+              <a href="/api/export?format=json" download="eventlens_stream.json">JSON Format</a>
+              <a href="/api/export?format=ndjson" download="eventlens_stream.ndjson">NDJSON Format</a>
+              <a href="/api/export?format=csv" download="eventlens_stream.csv">CSV Format</a>
+              <a href="/api/export?format=json&dlq_only=true" download="eventlens_dlq.json">DLQ Only (JSON)</a>
+            </div>
+          </div>
+          <button class="btn-icon" id="btn-toggle-sound" title="Toggle Audio Alerts">🔔</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-subnav">
+      <nav class="nav-tabs" id="navigation-tabs">
+        <button class="tab-btn active" data-tab="streams" id="tab-streams-btn">Live Stream</button>
+        <button class="tab-btn" data-tab="dlq" id="tab-dlq-btn">
+          DLQ Studio <span class="badge badge-red" id="dlq-count-badge">0</span>
+        </button>
+        <button class="tab-btn" data-tab="lag" id="tab-lag-btn">Lag Monitor</button>
+        <button class="tab-btn" data-tab="trace" id="tab-trace-btn">Event Trace</button>
+        <button class="tab-btn" data-tab="diff" id="tab-diff-btn">Diff Tool</button>
+      </nav>
     </div>
   </header>
 
