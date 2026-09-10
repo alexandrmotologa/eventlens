@@ -53,7 +53,10 @@ coverage.xml
 *.cover
 *.py,cover
 .hypothesis/
+# Antigravity scratch
+scratch/
 .pytest_cache/
+
 cover/
 
 # MyPy

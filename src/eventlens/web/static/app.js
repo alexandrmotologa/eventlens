@@ -96,6 +96,15 @@ document.addEventListener("DOMContentLoaded", () => {
         fetchDLQ();
       } else if (targetTab === "lag") {
         fetchLag();
+      } else if (targetTab === "trace") {
+        if (!traceInput.value) {
+          traceInput.value = "ord_9011";
+        }
+        executeTrace();
+      } else if (targetTab === "diff") {
+        if (btnRunDiff) {
+          btnRunDiff.click();
+        }
       }
     });
   });
@@ -509,13 +518,17 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch(`/api/trace?correlation_id=${encodeURIComponent(cid)}`);
       const graph = await res.json();
 
-      const statusBadge = graph.status === "FAILED" ? "badge-red" : graph.status === "COMPLETED" ? "badge-green" : "badge-orange";
+      const topics = [...new Set((graph.hops || []).map((h) => h.topic))];
+      const statusBadge = graph.has_dlq ? "badge-red" : "badge-green";
+      const statusText = graph.has_dlq ? "POISON (DLQ)" : "SUCCESS";
+      const durationMs = graph.total_latency_ms !== null && graph.total_latency_ms !== undefined ? graph.total_latency_ms : 0;
+
       traceSummaryBar.innerHTML = `
         <strong>Trace ID:</strong> <code>${escapeHtml(graph.correlation_id)}</code> &nbsp;|&nbsp; 
-        <strong>Total Hops:</strong> ${graph.total_hops} &nbsp;|&nbsp; 
-        <strong>Duration:</strong> ${graph.duration_ms} ms &nbsp;|&nbsp; 
-        <strong>Topics:</strong> ${graph.topics.join(" &rarr; ")} &nbsp;|&nbsp; 
-        <span class="badge ${statusBadge}">${graph.status}</span>
+        <strong>Total Hops:</strong> ${graph.hops?.length || 0} &nbsp;|&nbsp; 
+        <strong>Duration:</strong> ${durationMs} ms &nbsp;|&nbsp; 
+        <strong>Topics:</strong> ${topics.join(" &rarr; ")} &nbsp;|&nbsp; 
+        <span class="badge ${statusBadge}">${statusText}</span>
       `;
 
       traceTbody.innerHTML = "";
@@ -524,18 +537,20 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      graph.hops.forEach((hop) => {
+      graph.hops.forEach((hop, idx) => {
         const tr = document.createElement("tr");
         const hopStatusClass = hop.is_dlq ? "dlq" : "ok";
         const topicBadge = hop.is_dlq ? "badge-red" : "badge-green";
+        const actionStr = hop.event_type || hop.action || (hop.is_dlq ? "DeadLetter" : "Message");
+        const latencyStr = hop.latency_from_prev_ms !== null && hop.latency_from_prev_ms !== undefined ? `+${hop.latency_from_prev_ms} ms` : "START";
 
         tr.innerHTML = `
-          <td><strong>#${hop.hop}</strong></td>
+          <td><strong>#${idx + 1}</strong></td>
           <td><span class="badge ${topicBadge}">${escapeHtml(hop.topic)}</span></td>
           <td>P:${hop.partition} #${hop.offset}</td>
-          <td><strong>${escapeHtml(hop.action)}</strong></td>
-          <td>+${hop.latency_ms} ms</td>
-          <td><span class="status-tag ${hopStatusClass}">${escapeHtml(hop.status)}</span></td>
+          <td><strong>${escapeHtml(actionStr)}</strong></td>
+          <td>${latencyStr}</td>
+          <td><span class="status-tag ${hopStatusClass}">${escapeHtml(hop.status || (hop.is_dlq ? "DLQ_POISON" : "OK"))}</span></td>
         `;
         traceTbody.appendChild(tr);
       });
@@ -711,4 +726,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // Boot
   fetchStatus();
   connectWebSocket();
+
+  function handleHash() {
+    const hash = window.location.hash.replace("#", "");
+    if (hash) {
+      const btn = document.querySelector(`.tab-btn[data-tab="${hash}"]`);
+      if (btn) btn.click();
+    }
+  }
+  handleHash();
+  window.addEventListener("hashchange", handleHash);
 });

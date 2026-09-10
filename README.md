@@ -1,23 +1,42 @@
 # EventLens
 
-EventLens is a terminal and web debugger for Apache Kafka event streams and dead letter queues. It provides real-time stream tailing, JMESPath filtering, schema decoding for JSON, Protobuf, and Confluent Avro, consumer group lag tracking, time-travel traffic recording, distributed event tracing, structural payload diffing, and an interactive DLQ Studio for batch redriving failed messages.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11%2B%20%7C%203.12-blue?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Kafka-aiokafka-red?logo=apachekafka&logoColor=white" alt="Apache Kafka" />
+  <img src="https://img.shields.io/badge/TUI-Textual-purple" alt="Textual TUI" />
+  <img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" />
+</p>
+
+<p align="center">
+  Modern Developer-First Terminal & Web Kafka Event Stream Debugger and DLQ Studio.<br>
+  Live Stream Tailing &bull; JMESPath Filtering &bull; Dynamic Protobuf/Avro &bull; Time-Travel Debugger &bull; DLQ Batch Redrive
+</p>
+
+<p align="center">
+  <img src="docs/images/web-live-stream.png" alt="EventLens Live Stream Debugger" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+</p>
+
+---
 
 ## Key Capabilities
 
-- Live stream tailing with syntax highlighting and formatted record previews.
-- JMESPath and regular expression filtering across payload properties, headers, and keys.
-- Dynamic schema decoders for JSON, Google Protocol Buffers (Proto3), and Confluent Avro wire formats.
-- Confluent Schema Registry client with in-memory and disk caching.
-- Partition lag tracking and consumer group watermark diagnostics.
-- Dead Letter Queue studio with automated failure categorization (syntax errors, validation rejections, downstream outages, idempotency conflicts) and in-place redrive dispatch.
-- Batch DLQ redrive with dry-run verification and category filtering.
-- Time-travel debugger: record Kafka streams into portable `.lens` session files and replay them at variable speeds.
-- Distributed event tracing across multiple topics by correlation ID or entity key with latency delta calculations.
-- Structural payload diff tool for comparing messages or files side-by-side with colored terminal and web tables.
-- Message producer CLI for injecting test payloads and simulated traffic directly into Kafka.
-- Interactive terminal UI built with Textual, featuring collapsible payload trees and keyboard shortcuts.
-- Local web dashboard powered by FastAPI and WebSockets, including audio alerts, trace graph visualization, diff tool, and multi-format export (JSON, NDJSON, CSV).
-- Offline simulation mode (`eventlens demo`) to test every feature without a live Kafka broker.
+- **Live Stream Tailing**: Terminal and web inspection with syntax highlighting and formatted record previews.
+- **JMESPath & Regex Filtering**: Filter payloads on the fly across properties, headers, and keys.
+- **Dynamic Schema Decoders**: Zero-compilation deserialization for JSON, Google Protocol Buffers (Proto3), and Confluent Avro wire frames.
+- **Schema Registry Integration**: Confluent Schema Registry HTTP client with in-memory and disk caching.
+- **Partition Lag Telemetry**: Real-time partition log-end watermarks and consumer group committed offsets.
+- **Dead Letter Queue Studio**: Automated root cause diagnosis, stack trace parsing, and in-place payload patching with redrive dispatch.
+- **Batch DLQ Redrive**: Bulk redrive failed records by category (e.g. `Outage`, `Syntax`, `Validation`) with dry-run preview.
+- **Time-Travel Traffic Debugger**: Record Kafka streams into portable `.lens` session files and replay them with rate scaling.
+- **Distributed Event Tracing**: Multi-topic correlation by correlation ID or entity key with latency delta calculation.
+- **Structural Payload Diff Tool**: Side-by-side comparison of payloads or JSON files with added, removed, and modified highlighting.
+- **Producer CLI & Web Modal**: Publish custom test events directly into Kafka topics.
+- **Interactive Full-Screen TUI**: Keyboard-driven Textual interface with collapsible payload trees.
+- **Local Web Studio**: Dark-theme WebSocket dashboard with sound alerts, trace graphs, diff comparison, and export (JSON, NDJSON, CSV).
+- **Offline Simulation Mode**: Test all features (`eventlens demo`) without a live Kafka broker.
+
+---
 
 ## Installation
 
@@ -36,6 +55,8 @@ git clone https://github.com/alexandrmotologa/eventlens.git
 cd eventlens
 uv sync --all-extras --dev
 ```
+
+---
 
 ## Quick Start
 
@@ -74,59 +95,93 @@ For Confluent Schema Registry integration:
 eventlens tail order.events --schema-registry http://localhost:8081
 ```
 
-### 3. Trace events across topics
+---
+
+### 3. Dead Letter Queue Triage & Batch Redrive
+
+Inspect poisoned messages and automated failure diagnostics:
+
+```bash
+eventlens dlq inspect order.events.dlq --broker localhost:9092
+```
+
+<p align="center">
+  <img src="docs/images/web-dlq-studio.png" alt="EventLens DLQ Studio" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+</p>
+
+Batch redrive transient failures with dry-run verification:
+
+```bash
+# Dry run preview of transient outage failures
+eventlens dlq redrive-batch order.events.dlq --category Outage --dry-run
+
+# Live redrive up to 100 messages to the original topic
+eventlens dlq redrive-batch order.events.dlq --category Outage --target order.events --limit 100
+```
+
+---
+
+### 4. Distributed Event Tracing
 
 Track an order or correlation ID across multiple topics to inspect routing and hop latencies:
 
 ```bash
 eventlens trace ord_9011 --broker localhost:9092
-# Or try the built-in demo trace:
+# Or test with the built-in demo trace:
 eventlens trace ord_9011 --demo
 ```
 
-### 4. Compare message payloads (Diff Tool)
+<p align="center">
+  <img src="docs/images/web-event-trace.png" alt="EventLens Distributed Event Trace" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+</p>
 
-Compare two JSON files, literal JSON strings, or message payloads side-by-side:
+---
+
+### 5. Visual Payload Diff Tool
+
+Compare two message payloads, JSON files, or topic offsets side-by-side:
 
 ```bash
-eventlens diff '{"status": "PENDING", "amount": 100}' '{"status": "COMPLETED", "amount": 100}'
+eventlens diff '{"status": "PENDING", "amount": 100}' '{"status": "CONFIRMED", "amount": 100}'
 # Demo comparison:
 eventlens diff dummy dummy --demo
 ```
 
-### 5. Record and replay traffic (Time-Travel)
+<p align="center">
+  <img src="docs/images/web-diff-tool.png" alt="EventLens Payload Diff Tool" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+</p>
 
-Record 1,000 live events to a `.lens` file:
+---
 
-```bash
-eventlens record order.events -o recording.lens --max 1000
-```
+### 6. Partition Lag Monitoring
 
-Replay recorded traffic into a staging or shadow topic at 2x speed:
-
-```bash
-eventlens replay recording.lens --target shadow.order.events --speed 2.0
-```
-
-### 6. Batch redrive DLQ records
-
-Triage poisoned messages, filter by category (e.g. Outage), and preview the redrive using dry-run mode:
+Inspect consumer group offsets and partition lag against log-end watermarks:
 
 ```bash
-# Dry-run preview
-eventlens dlq redrive-batch order.events.dlq --category Outage --dry-run
-
-# Execute live batch redrive
-eventlens dlq redrive-batch order.events.dlq --category Outage --target order.events --limit 100
+eventlens lag order.events --group order-worker-group
 ```
 
-### 7. Publish test events
+<p align="center">
+  <img src="docs/images/web-lag-monitor.png" alt="EventLens Lag Monitor" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+</p>
 
-Inject test payloads into a topic:
+---
+
+### 7. Time-Travel Debugger (Record & Replay)
+
+Record live traffic into a `.lens` session file:
 
 ```bash
-eventlens produce order.events --key ord_123 --json '{"order_id": "ord_123", "amount": 49.99}'
+eventlens record order.events -o order_traffic.lens --max 500
 ```
+
+Replay recorded traffic into a shadow topic at 2x speed:
+
+```bash
+eventlens replay order_traffic.lens --target shadow.orders --speed 2.0
+```
+
+---
 
 ### 8. Interactive Terminal UI (TUI)
 
@@ -147,7 +202,9 @@ Keyboard shortcuts in TUI:
 - `Ctrl+R`: Open redrive confirmation modal on DLQ view.
 - `q`: Quit application.
 
-### 9. Local Web Dashboard
+---
+
+### 9. Local Web Studio
 
 Launch the web studio on port 8080:
 
@@ -156,14 +213,15 @@ eventlens web --demo --port 8080
 ```
 
 Open `http://localhost:8080` in your browser to access:
-- Live streaming table with detail inspector and search.
-- DLQ Studio with diagnostic root causes, stack trace details, and JSON patch redrive.
-- Partition lag gauges and consumer group health indicators.
-- Distributed Event Trace explorer.
-- Visual payload diff comparison.
-- Test message publishing modal.
-- Audio and visual alerts for incoming poison pills.
-- Data export in JSON, NDJSON, and CSV formats.
+- Live streaming table with detail drawer inspector.
+- DLQ Studio with failure diagnostics and JSON patch editor.
+- Consumer lag gauges and watermark indicators.
+- Distributed event tracing graph.
+- Side-by-side payload diffing.
+- Publish event modal.
+- Poison pill audio alerts and export dropdown (JSON, NDJSON, CSV).
+
+---
 
 ## Documentation
 
@@ -172,6 +230,8 @@ Open `http://localhost:8080` in your browser to access:
 - [Schema Decoders](docs/decoders.md)
 - [Dead Letter Queue Studio](docs/dlq-studio.md)
 - [Web Studio Guide](docs/web-studio.md)
+
+---
 
 ## Development and Testing
 
@@ -187,6 +247,8 @@ Run linter and formatter:
 uv run ruff check .
 uv run ruff format .
 ```
+
+---
 
 ## License
 
