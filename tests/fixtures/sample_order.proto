@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package com.engine.order.messaging;
+
+message OrderCreatedProto {
+  string event_id = 1;
+  string order_id = 2;
+  string customer_id = 3;
+  string currency = 4;
+  string total_amount = 5;
+  int64 timestamp = 6;
+  int64 sequence_number = 7;
+}
+
+message OrderEventEnvelopeProto {
+  string event_id = 1;
+  string order_id = 2;
+  string event_type = 3;
+  int64 sequence_number = 4;
+  int64 timestamp = 5;
+  bytes payload = 6;
+}

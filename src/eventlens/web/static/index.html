@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="EventLens - Modern Terminal & Web Kafka Event Stream Debugger & DLQ Studio">
+  <title>EventLens — Kafka Stream Debugger & DLQ Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="dark-theme">
+  <header class="app-header" id="app-header">
+    <div class="brand-group">
+      <div class="logo-badge">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="2" y1="12" x2="22" y2="12"></line>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1 class="brand-title">EventLens</h1>
+        <span class="brand-subtitle">Stream Debugger & DLQ Studio</span>
+      </div>
+    </div>
+
+    <div class="header-status-panel">
+      <div class="status-chip" id="connection-status">
+        <span class="status-dot pulse-green"></span>
+        <span id="conn-text">Connecting...</span>
+      </div>
+      <div class="metric-chip">
+        <span class="metric-label">Topic:</span>
+        <span class="metric-val" id="active-topic">-</span>
+      </div>
+      <div class="metric-chip">
+        <span class="metric-label">Broker:</span>
+        <span class="metric-val" id="active-broker">-</span>
+      </div>
+      <div class="metric-chip">
+        <span class="metric-label">Rate:</span>
+        <span class="metric-val" id="eps-counter">0.0 eps</span>
+      </div>
+    </div>
+
+    <nav class="nav-tabs" id="navigation-tabs">
+      <button class="tab-btn active" data-tab="streams" id="tab-streams-btn">Live Stream</button>
+      <button class="tab-btn" data-tab="dlq" id="tab-dlq-btn">
+        DLQ Studio <span class="badge badge-red" id="dlq-count-badge">0</span>
+      </button>
+      <button class="tab-btn" data-tab="lag" id="tab-lag-btn">Lag Monitor</button>
+    </nav>
+  </header>
+
+  <main class="app-main" id="main-content">
+    <!-- Stream Tab -->
+    <section class="tab-pane active" id="pane-streams">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="stream-filter-input" placeholder="Filter by keyword, key, or property..." />
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn btn-secondary" id="btn-toggle-pause">Pause Feed</button>
+          <button class="btn btn-secondary" id="btn-clear-stream">Clear</button>
+        </div>
+      </div>
+
+      <div class="stream-layout">
+        <div class="table-container">
+          <table class="stream-table" id="stream-table">
+            <thead>
+              <tr>
+                <th width="70">Status</th>
+                <th width="60">Part</th>
+                <th width="80">Offset</th>
+                <th width="120">Key</th>
+                <th width="90">Format</th>
+                <th>Payload Preview</th>
+                <th width="140">Time</th>
+              </tr>
+            </thead>
+            <tbody id="stream-tbody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="detail-drawer" id="detail-drawer">
+          <div class="drawer-header">
+            <h2 class="drawer-title" id="drawer-title">Record Details</h2>
+            <button class="btn-icon" id="btn-copy-payload" title="Copy JSON">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="drawer-section">
+            <h3 class="section-label">Headers</h3>
+            <pre class="code-block" id="detail-headers">No selection</pre>
+          </div>
+          <div class="drawer-section grow">
+            <h3 class="section-label">Payload</h3>
+            <pre class="code-block json-viewer" id="detail-payload">Click on any record to view structure</pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DLQ Studio Tab -->
+    <section class="tab-pane" id="pane-dlq">
+      <div class="dlq-layout">
+        <div class="dlq-sidebar">
+          <div class="dlq-sidebar-header">
+            <h2>Poison Pills</h2>
+            <button class="btn btn-sm btn-secondary" id="btn-refresh-dlq">Refresh</button>
+          </div>
+          <div class="dlq-list" id="dlq-items-list">
+            <!-- Populated via API -->
+          </div>
+        </div>
+
+        <div class="dlq-content">
+          <div class="diagnostic-card" id="dlq-diagnostic-card">
+            <div class="diag-header">
+              <span class="diag-badge" id="diag-category">No Message Selected</span>
+              <span class="diag-meta" id="diag-original-topic">Original Topic: -</span>
+            </div>
+            <div class="diag-body">
+              <div class="diag-item">
+                <strong>Root Cause:</strong>
+                <span id="diag-root-cause">Select a poisoned message from the list</span>
+              </div>
+              <div class="diag-item">
+                <strong>Suggested Action:</strong>
+                <span id="diag-action">-</span>
+              </div>
+              <details class="stacktrace-details">
+                <summary>Exception Stack Trace</summary>
+                <pre class="stacktrace-pre" id="diag-stacktrace">None</pre>
+              </details>
+            </div>
+          </div>
+
+          <div class="editor-panel">
+            <div class="editor-header">
+              <h3>Payload Editor (JSON Patch)</h3>
+              <div class="redrive-controls">
+                <label for="redrive-target-input">Target Topic:</label>
+                <input type="text" id="redrive-target-input" class="input-sm" placeholder="order.events" />
+                <button class="btn btn-danger" id="btn-execute-redrive">Redrive Message</button>
+              </div>
+            </div>
+            <textarea id="dlq-payload-editor" spellcheck="false" placeholder="Payload content..."></textarea>
+            <div class="notification-bar" id="redrive-status-bar"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Lag Monitor Tab -->
+    <section class="tab-pane" id="pane-lag">
+      <div class="lag-dashboard">
+        <div class="lag-summary-row">
+          <div class="stat-card">
+            <span class="stat-label">Consumer Group</span>
+            <span class="stat-val" id="lag-group-id">-</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Total Consumer Lag</span>
+            <span class="stat-val text-red" id="lag-total-val">0</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-label">Monitored Partitions</span>
+            <span class="stat-val" id="lag-part-count">0</span>
+          </div>
+        </div>
+
+        <div class="lag-table-container">
+          <table class="lag-table">
+            <thead>
+              <tr>
+                <th>Partition</th>
+                <th>Log End (High Watermark)</th>
+                <th>Committed Offset</th>
+                <th>Partition Lag</th>
+                <th width="300">Lag Gauge</th>
+              </tr>
+            </thead>
+            <tbody id="lag-tbody">
+              <!-- Populated via API -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -16,10 +16,7 @@ When working with Protobuf, EventLens uses the `google.protobuf.descriptor_pool`
 ```python
 from eventlens.decoders.proto_decoder import ProtoDecoder
 
-decoder = ProtoDecoder(
-    proto_file_path="contracts/order_events.proto",
-    message_type="OrderCreatedProto"
-)
+decoder = ProtoDecoder(proto_file_path="contracts/order_events.proto", message_type="OrderCreatedProto")
 
 decoded = decoder.decode(raw_bytes)
 print(decoded.data)
