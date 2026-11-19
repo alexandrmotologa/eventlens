@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 
 from eventlens.web.server import create_app
 

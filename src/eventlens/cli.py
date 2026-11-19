@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from eventlens import __version__
 from eventlens.config import EventLensConfig
 from eventlens.decoders.registry import DecoderRegistry
 from eventlens.engine.consumer import AsyncConsumer
@@ -39,6 +40,33 @@ dlq_app = typer.Typer(
 app.add_typer(dlq_app, name="dlq")
 
 console = Console()
+
+
+def version_callback(value: bool) -> None:
+    """Callback for --version option."""
+    if value:
+        console.print(f"[bold cyan]EventLens[/bold cyan] version [bold green]{__version__}[/bold green]")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        "-v",
+        help="Show EventLens version and exit.",
+        callback=version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Developer-first Terminal & Web Kafka Event Stream Debugger & DLQ Studio."""
+
+
+@app.command()
+def version() -> None:
+    """Show EventLens version."""
+    console.print(f"[bold cyan]EventLens[/bold cyan] version [bold green]{__version__}[/bold green]")
 
 
 def print_record_table_row(table: Table, record: KafkaRecord) -> None:

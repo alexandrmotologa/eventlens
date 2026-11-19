@@ -18,7 +18,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/web-live-stream.png" alt="EventLens Live Stream Debugger" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+  <img src="docs/images/eventlens_demo.gif" alt="EventLens Demo" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
 </p>
 
 ---
@@ -84,6 +84,10 @@ Filter payloads using JMESPath or regular expressions:
 eventlens tail order.events --filter "total_amount > `100`"
 eventlens tail order.events --regex "FAIL|ERROR"
 ```
+
+<p align="center">
+  <img src="docs/images/web-live-stream.png" alt="EventLens Live Stream Debugger" width="850" style="border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);" />
+</p>
 
 ### 2. Decode Protobuf and Avro payloads
 
